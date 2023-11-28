@@ -59,16 +59,23 @@ export async function release(
     }
   }
 
-  const throttlerOptions = {
+  const rateLimitedOptions: executor.RateLimitedOptions = {
+    retries: 30,
+    // NOTE: cloudfunctions.googleapis.com/write_requests (creating, updating, deleting a function) 
+    // has a fixed quota limit of 50 requests per minute. We use 49 just to have 1 wiggle room.
+    intervalCap: 49,
+    interval: 60000,
+    carryoverConcurrencyCount: true,
+  };
+  const queueOptions: ConstructorParameters<typeof executor.QueueExecutor>[0] = {
     retries: 30,
     backoff: 20000,
-    concurrency: 40,
     maxBackoff: 100000,
   };
 
   const fab = new fabricator.Fabricator({
-    functionExecutor: new executor.QueueExecutor(throttlerOptions),
-    executor: new executor.QueueExecutor(throttlerOptions),
+    functionExecutor: new executor.RateLimitedExecutor(rateLimitedOptions),
+    executor: new executor.QueueExecutor(queueOptions),
     sources: context.sources,
     appEngineLocation: getAppEngineLocation(context.firebaseConfig),
     projectNumber: options.projectNumber || (await getProjectNumber(context.projectId)),

@@ -1,3 +1,6 @@
+import RetriesExhaustedError from "../../../throttler/errors/retries-exhausted-error";
+import PQueue, { Options, QueueAddOptions } from "p-queue";
+import PriorityQueue from "p-queue/dist/priority-queue";
 import { Queue } from "../../../throttler/queue";
 import { ThrottlerOptions } from "../../../throttler/throttler";
 
@@ -12,11 +15,19 @@ export interface RunOptions {
   retryCodes?: number[];
 }
 
+export interface RateLimitedOptions extends Options<PriorityQueue, QueueAddOptions> {
+  retries: number;
+}
+
 interface Operation {
   func: () => any;
   retryCodes: number[];
   result?: any;
   error?: any;
+}
+
+interface RateLimitedOperation extends Operation {
+  retryCount: number;
 }
 
 export const DEFAULT_RETRY_CODES = [429, 409, 503];
@@ -70,6 +81,43 @@ export class QueueExecutor implements Executor {
       retryCodes,
     };
     await this.queue.run(op);
+    if (op.error) {
+      throw op.error;
+    }
+    return op.result as T;
+  }
+}
+
+export class RateLimitedExecutor implements Executor {
+  private readonly queue: PQueue;
+  private readonly retries: number;
+
+  constructor(options: RateLimitedOptions) {
+    this.queue = new PQueue(options);
+    this.retries = options.retries;
+  }
+
+  async run<T>(func: () => Promise<T>, opts?: RunOptions): Promise<T> {
+    const retryCodes = opts?.retryCodes || DEFAULT_RETRY_CODES;
+
+    const op: RateLimitedOperation = {
+      func,
+      retryCodes,
+      retryCount: 0,
+    };
+    const task = (): Promise<void> => {
+      try {
+        return handler(op);
+      } catch (err: any) {
+        if (op.retryCount > this.retries) {
+          throw new RetriesExhaustedError("rateLimitedExecutor", this.retries, err);
+        }
+
+        op.retryCount++;
+        return this.queue.add(task);
+      }
+    };
+    await this.queue.add(task);
     if (op.error) {
       throw op.error;
     }
