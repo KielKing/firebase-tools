@@ -61,7 +61,7 @@ export async function release(
 
   const rateLimitedOptions: executor.RateLimitedOptions = {
     retries: 30,
-    // NOTE: cloudfunctions.googleapis.com/write_requests (creating, updating, deleting a function) 
+    // NOTE: cloudfunctions.googleapis.com/write_requests (creating, updating, deleting a function)
     // has a fixed quota limit of 50 requests per minute. We use 49 just to have 1 wiggle room.
     intervalCap: 49,
     interval: 60000,
